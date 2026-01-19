@@ -1,15 +1,59 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Mic, MessageSquare, BarChart3, Users } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import { ArrowRight, Mic, MessageSquare, BarChart3, Users, History, LogOut, User } from "lucide-react";
 
 export default function LandingPage() {
+  const { data: session, status } = useSession();
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 text-white">
       {/* Hero Section */}
       <div className="container mx-auto px-4 py-16">
         <nav className="flex justify-between items-center mb-16">
           <h1 className="text-2xl font-bold">Round Zero</h1>
+          <div className="flex items-center gap-4">
+            {status === "loading" ? (
+              <div className="w-8 h-8 border-2 border-slate-600 border-t-white rounded-full animate-spin" />
+            ) : session?.user ? (
+              <>
+                <Link
+                  href="/history"
+                  className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors"
+                >
+                  <History className="w-4 h-4" />
+                  History
+                </Link>
+                <div className="flex items-center gap-2 text-slate-300">
+                  <User className="w-4 h-4" />
+                  <span className="text-sm">{session.user.name || session.user.email}</span>
+                </div>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/" })}
+                  className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="text-slate-300 hover:text-white transition-colors"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/register"
+                  className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
+          </div>
         </nav>
 
         <div className="max-w-4xl mx-auto text-center">
@@ -61,14 +105,27 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto bg-slate-800/50 rounded-2xl p-8 text-center border border-slate-700">
           <h3 className="text-2xl font-bold mb-4">Ready to Practice?</h3>
           <p className="text-slate-300 mb-6">
-            No sign-up required. Start your mock interview in seconds.
+            {session?.user
+              ? "Your interview history is automatically saved. Start practicing now!"
+              : "Sign up to save your progress, or practice as a guest."}
           </p>
-          <Link
-            href="/setup"
-            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
-          >
-            Begin Interview Setup <ArrowRight className="w-5 h-5" />
-          </Link>
+          <div className="flex flex-wrap gap-4 justify-center">
+            <Link
+              href="/setup"
+              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+            >
+              Begin Interview Setup <ArrowRight className="w-5 h-5" />
+            </Link>
+            {session?.user && (
+              <Link
+                href="/history"
+                className="inline-flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+              >
+                <History className="w-5 h-5" />
+                View History
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 

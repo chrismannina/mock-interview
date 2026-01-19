@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AzureOpenAI } from "openai";
 import { Message, InterviewConfig } from "@/types/interview";
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 function getSystemPrompt(config: InterviewConfig): string {
   const roleContext = getRoleContext(config.roleType);
@@ -45,10 +47,14 @@ function getRoleContext(roleType: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages, config } = (await request.json()) as {
+    const { messages, config, sessionId } = (await request.json()) as {
       messages: Message[];
       config: InterviewConfig;
+      sessionId?: string;
     };
+
+    // Get auth session for potential message persistence
+    const authSession = await auth();
 
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
     const apiKey = process.env.AZURE_OPENAI_API_KEY;
@@ -89,6 +95,51 @@ export async function POST(request: NextRequest) {
     const assistantMessage = response.choices[0]?.message?.content || "";
     const isComplete = assistantMessage.includes("[INTERVIEW_COMPLETE]");
     const cleanedMessage = assistantMessage.replace("[INTERVIEW_COMPLETE]", "").trim();
+
+    // Save messages to database if user is authenticated and sessionId is provided
+    if (authSession?.user?.id && sessionId) {
+      try {
+        // Get the last user message (if any) and the new assistant message
+        const lastUserMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
+        // Create messages to save (only the latest exchange)
+        const messagesToSave = [];
+
+        if (lastUserMessage && lastUserMessage.role === "user") {
+          messagesToSave.push({
+            sessionId,
+            role: "user",
+            content: lastUserMessage.content,
+            timestamp: new Date(lastUserMessage.timestamp),
+          });
+        }
+
+        messagesToSave.push({
+          sessionId,
+          role: "assistant",
+          content: cleanedMessage,
+          timestamp: new Date(),
+        });
+
+        await prisma.interviewMessage.createMany({
+          data: messagesToSave,
+        });
+
+        // If interview is complete, update the session status
+        if (isComplete) {
+          await prisma.interviewSession.update({
+            where: { id: sessionId },
+            data: {
+              status: "completed",
+              endedAt: new Date(),
+            },
+          });
+        }
+      } catch (dbError) {
+        // Log but don't fail the request if DB save fails
+        console.error("Failed to save messages to database:", dbError);
+      }
+    }
 
     return NextResponse.json({
       message: cleanedMessage,

@@ -23,6 +23,7 @@ import {
 interface StoredSession {
   messages: Message[];
   config: InterviewConfig;
+  sessionId?: string;
   completedAt: string;
 }
 
@@ -53,6 +54,7 @@ export default function FeedbackPage() {
         body: JSON.stringify({
           messages: session.messages,
           config: session.config,
+          sessionId: session.sessionId,
         }),
       });
 

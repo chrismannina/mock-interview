@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AzureOpenAI } from "openai";
 import { Message, InterviewConfig, InterviewFeedback } from "@/types/interview";
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 const FEEDBACK_SYSTEM_PROMPT = `You are an expert interview coach analyzing a mock interview. Provide constructive feedback in JSON format.`;
 
@@ -72,10 +74,14 @@ function extractJSON(content: string): object | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages, config } = (await request.json()) as {
+    const { messages, config, sessionId } = (await request.json()) as {
       messages: Message[];
       config: InterviewConfig;
+      sessionId?: string;
     };
+
+    // Get auth session for potential feedback persistence
+    const authSession = await auth();
 
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
     const apiKey = process.env.AZURE_OPENAI_API_KEY;
@@ -175,6 +181,32 @@ export async function POST(request: NextRequest) {
         questionFeedback: [],
         summary: content.length > 0 ? content : "Feedback generation encountered an error. Please try again.",
       };
+    }
+
+    // Save feedback to database if user is authenticated and sessionId is provided
+    if (authSession?.user?.id && sessionId) {
+      try {
+        // Check if feedback already exists for this session
+        const existingFeedback = await prisma.interviewFeedback.findUnique({
+          where: { sessionId },
+        });
+
+        if (!existingFeedback) {
+          await prisma.interviewFeedback.create({
+            data: {
+              sessionId,
+              overallScore: feedback.overallScore,
+              strengths: JSON.stringify(feedback.strengths),
+              areasToImprove: JSON.stringify(feedback.areasToImprove),
+              questionFeedback: JSON.stringify(feedback.questionFeedback),
+              summary: feedback.summary,
+            },
+          });
+        }
+      } catch (dbError) {
+        // Log but don't fail the request if DB save fails
+        console.error("Failed to save feedback to database:", dbError);
+      }
     }
 
     return NextResponse.json(feedback);

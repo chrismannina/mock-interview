@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -22,6 +23,7 @@ import { useSpeechRecognition, useSpeechSynthesis } from "@/hooks/useSpeech";
 function InterviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: authSession } = useSession();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -29,9 +31,11 @@ function InterviewContent() {
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
+  const [interviewSessionId, setInterviewSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const autoRunRef = useRef(false);
+  const sessionInitializedRef = useRef(false);
 
   const {
     isListening,
@@ -77,7 +81,10 @@ function InterviewContent() {
 
   // Start interview on mount
   useEffect(() => {
-    startInterview();
+    if (!sessionInitializedRef.current) {
+      sessionInitializedRef.current = true;
+      startInterview();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -86,13 +93,45 @@ function InterviewContent() {
     autoRunRef.current = autoRunning;
   }, [autoRunning]);
 
+  const createInterviewSession = async (): Promise<string | null> => {
+    if (!authSession?.user) return null;
+
+    try {
+      const response = await fetch("/api/interview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roleType: config.roleType,
+          jobDescription: config.jobDescription,
+        }),
+      });
+
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      return data.sessionId;
+    } catch (error) {
+      console.error("Failed to create interview session:", error);
+      return null;
+    }
+  };
+
   const startInterview = async () => {
     setIsLoading(true);
     try {
+      // Create interview session for authenticated users
+      let sessionId = null;
+      if (authSession?.user) {
+        sessionId = await createInterviewSession();
+        if (sessionId) {
+          setInterviewSessionId(sessionId);
+        }
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [], config }),
+        body: JSON.stringify({ messages: [], config, sessionId }),
       });
 
       if (!response.ok) throw new Error("Failed to start interview");
@@ -143,7 +182,7 @@ function InterviewContent() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages, config }),
+        body: JSON.stringify({ messages: newMessages, config, sessionId: interviewSessionId }),
       });
 
       if (!response.ok) throw new Error("Failed to get response");
@@ -213,7 +252,7 @@ function InterviewContent() {
         const chatResponse = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: newMessages, config }),
+          body: JSON.stringify({ messages: newMessages, config, sessionId: interviewSessionId }),
         });
 
         if (!chatResponse.ok) throw new Error("Failed to get interviewer response");
@@ -287,6 +326,7 @@ function InterviewContent() {
       JSON.stringify({
         messages,
         config,
+        sessionId: interviewSessionId,
         completedAt: new Date().toISOString(),
       })
     );
